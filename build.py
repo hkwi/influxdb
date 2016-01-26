@@ -227,10 +227,17 @@ def upload_packages(packages, bucket_name=None, nightly=False):
     c = boto.connect_s3()
     if bucket_name is None:
         bucket_name = 'influxdb-nightly'
-    bucket = c.get_bucket(bucket_name)
+    bucket = c.get_bucket(bucket_name.split('/')[0])
     print "\t - Using bucket: {}".format(bucket_name)
     for p in packages:
-        name = os.path.basename(p)
+        if '/' in bucket_name:
+            # Allow for nested paths within the bucket name (ex:
+            # bucket/telegraf). Assuming forward-slashes as path
+            # delimiter.
+            name = os.path.join('/'.join(bucket_name.split('/')[1:]),
+                                os.path.basename(p))
+        else:
+            name = os.path.basename(p)
         if bucket.get_key(name) is None or nightly:
             print "\t - Uploading {}...".format(name)
             sys.stdout.flush()
@@ -492,7 +499,7 @@ def build_packages(build_output, version, pkg_arch, nightly=False, rc=None, iter
                         if nightly:
                             name = '{}-nightly_{}_{}'.format(name, p, a)
                         else:
-                            name = '{}-{}_{}_{}'.format(name, version, p, a)
+                            name = '{}-{}-{}_{}_{}'.format(name, package_version, package_iteration, p, a)
                     if package_type == 'tar':
                         # Add `tar.gz` to path to ensure a small package size
                         current_location = os.path.join(current_location, name + '.tar.gz')
@@ -511,6 +518,8 @@ def build_packages(build_output, version, pkg_arch, nightly=False, rc=None, iter
                         package_iteration,
                         build_root,
                         current_location)
+                    if debug:
+                        fpm_command += "--verbose "
                     if package_type == "rpm":
                         fpm_command += "--depends coreutils --rpm-posttrans {}".format(POSTINST_SCRIPT)
                     out = run(fpm_command, shell=True)
