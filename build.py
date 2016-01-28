@@ -19,7 +19,12 @@ import re
 
 debug = False
 
+################
+#### InfluxDB Variables
+################
+
 # Packaging variables
+PACKAGE_NAME = "influxdb"
 INSTALL_ROOT_DIR = "/usr/bin"
 LOG_DIR = "/var/log/influxdb"
 DATA_DIR = "/var/lib/influxdb"
@@ -34,6 +39,9 @@ POSTINST_SCRIPT = "scripts/post-install.sh"
 POSTUNINST_SCRIPT = "scripts/post-uninstall.sh"
 LOGROTATE_SCRIPT = "scripts/logrotate"
 DEFAULT_CONFIG = "etc/config.sample.toml"
+
+# Default AWS S3 bucket for uploads
+DEFAULT_BUCKET = "influxdb"
 
 CONFIGURATION_FILES = [
     CONFIG_DIR + '/influxdb.conf',
@@ -95,6 +103,34 @@ supported_packages = {
     "windows": [ "tar", "zip" ],
 }
 
+################
+#### InfluxDB Functions
+################
+
+def create_package_fs(build_root):
+    print "\t- Creating a filesystem hierarchy from directory: {}".format(build_root)
+    # Using [1:] for the path names due to them being absolute
+    # (will overwrite previous paths, per 'os.path.join' documentation)
+    dirs = [ INSTALL_ROOT_DIR[1:], LOG_DIR[1:], DATA_DIR[1:], SCRIPT_DIR[1:], CONFIG_DIR[1:], LOGROTATE_DIR[1:] ]
+    for d in dirs:
+        create_dir(os.path.join(build_root, d))
+        os.chmod(os.path.join(build_root, d), 0755)
+
+def package_scripts(build_root):
+    print "\t- Copying scripts and sample configuration to build directory"
+    shutil.copyfile(INIT_SCRIPT, os.path.join(build_root, SCRIPT_DIR[1:], INIT_SCRIPT.split('/')[1]))
+    os.chmod(os.path.join(build_root, SCRIPT_DIR[1:], INIT_SCRIPT.split('/')[1]), 0644)
+    shutil.copyfile(SYSTEMD_SCRIPT, os.path.join(build_root, SCRIPT_DIR[1:], SYSTEMD_SCRIPT.split('/')[1]))
+    os.chmod(os.path.join(build_root, SCRIPT_DIR[1:], SYSTEMD_SCRIPT.split('/')[1]), 0644)
+    shutil.copyfile(LOGROTATE_SCRIPT, os.path.join(build_root, LOGROTATE_DIR[1:], "influxdb"))
+    os.chmod(os.path.join(build_root, LOGROTATE_DIR[1:], "influxdb"), 0644)
+    shutil.copyfile(DEFAULT_CONFIG, os.path.join(build_root, CONFIG_DIR[1:], "influxdb.conf"))
+    os.chmod(os.path.join(build_root, CONFIG_DIR[1:], "influxdb.conf"), 0644)
+
+################
+#### All InfluxDB-specific content above this line
+################
+
 def run(command, allow_failure=False, shell=False):
     out = None
     if debug:
@@ -135,7 +171,7 @@ def run(command, allow_failure=False, shell=False):
 
 def create_temp_dir(prefix = None):
     if prefix is None:
-        return tempfile.mkdtemp(prefix="influxdb-build.")
+        return tempfile.mkdtemp(prefix="{}-build.".format(PACKAGE_NAME))
     else:
         return tempfile.mkdtemp(prefix=prefix)
 
@@ -226,13 +262,13 @@ def upload_packages(packages, bucket_name=None, nightly=False):
     print "Connecting to S3...".format(bucket_name)
     c = boto.connect_s3()
     if bucket_name is None:
-        bucket_name = 'influxdb-nightly'
+        bucket_name = DEFAULT_BUCKET
     bucket = c.get_bucket(bucket_name.split('/')[0])
     print "\t - Using bucket: {}".format(bucket_name)
     for p in packages:
         if '/' in bucket_name:
             # Allow for nested paths within the bucket name (ex:
-            # bucket/telegraf). Assuming forward-slashes as path
+            # bucket/folder). Assuming forward-slashes as path
             # delimiter.
             name = os.path.join('/'.join(bucket_name.split('/')[1:]),
                                 os.path.basename(p))
@@ -399,26 +435,6 @@ def copy_file(fr, to):
     except OSError as e:
         print e
 
-def create_package_fs(build_root):
-    print "\t- Creating a filesystem hierarchy from directory: {}".format(build_root)
-    # Using [1:] for the path names due to them being absolute
-    # (will overwrite previous paths, per 'os.path.join' documentation)
-    dirs = [ INSTALL_ROOT_DIR[1:], LOG_DIR[1:], DATA_DIR[1:], SCRIPT_DIR[1:], CONFIG_DIR[1:], LOGROTATE_DIR[1:] ]
-    for d in dirs:
-        create_dir(os.path.join(build_root, d))
-        os.chmod(os.path.join(build_root, d), 0755)
-
-def package_scripts(build_root):
-    print "\t- Copying scripts and sample configuration to build directory"
-    shutil.copyfile(INIT_SCRIPT, os.path.join(build_root, SCRIPT_DIR[1:], INIT_SCRIPT.split('/')[1]))
-    os.chmod(os.path.join(build_root, SCRIPT_DIR[1:], INIT_SCRIPT.split('/')[1]), 0644)
-    shutil.copyfile(SYSTEMD_SCRIPT, os.path.join(build_root, SCRIPT_DIR[1:], SYSTEMD_SCRIPT.split('/')[1]))
-    os.chmod(os.path.join(build_root, SCRIPT_DIR[1:], SYSTEMD_SCRIPT.split('/')[1]), 0644)
-    shutil.copyfile(LOGROTATE_SCRIPT, os.path.join(build_root, LOGROTATE_DIR[1:], "influxdb"))
-    os.chmod(os.path.join(build_root, LOGROTATE_DIR[1:], "influxdb"), 0644)
-    shutil.copyfile(DEFAULT_CONFIG, os.path.join(build_root, CONFIG_DIR[1:], "influxdb.conf"))
-    os.chmod(os.path.join(build_root, CONFIG_DIR[1:], "influxdb.conf"), 0644)
-
 def go_get(branch, update=False):
     get_command = None
     if update:
@@ -488,7 +504,7 @@ def build_packages(build_output, version, pkg_arch, nightly=False, rc=None, iter
                 # Package the directory structure
                 for package_type in supported_packages[p]:
                     print "\t- Packaging directory '{}' as '{}'...".format(build_root, package_type)
-                    name = "influxdb"
+                    name = PACKAGE_NAME
                     # Reset version, iteration, and current location on each run
                     # since they may be modified below.
                     package_version = version
