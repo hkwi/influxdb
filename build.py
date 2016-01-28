@@ -175,10 +175,17 @@ def create_temp_dir(prefix = None):
     else:
         return tempfile.mkdtemp(prefix=prefix)
 
-def get_current_version():
-    command = "git describe --always --tags --abbrev=0"
-    out = run(command)
-    return out.strip()
+def get_current_version_tag():
+    version = run("git describe --always --tags --abbrev=0").strip()
+    return version
+
+def get_current_rc():
+    rc = None
+    version_tag = get_current_version_tag()
+    matches = re.match(r'.*-rc(\d+)', version_tag)
+    if matches:
+        rc, = matches.groups(1)
+    return rc
 
 def get_current_commit(short=False):
     command = None
@@ -465,6 +472,17 @@ def go_get(branch, update=False):
         print "Moving back to branch '{}'...".format(branch)
         run("git checkout {}".format(branch))
 
+def run_generate():
+    print "Running generate..."
+    command = "go generate ./..."
+    code = os.system(command)
+    if code != 0:
+        print "Generate Failed"
+        return False
+    else:
+        print "Generate Succeeded"
+    return True
+        
 def generate_md5_from_file(path):
     m = hashlib.md5()
     with open(path, 'rb') as f:
@@ -580,6 +598,7 @@ def print_usage():
     print "\t --update \n\t\t- Whether dependencies should be updated prior to building."
     print "\t --test \n\t\t- Run Go tests. Will not produce a build."
     print "\t --parallel \n\t\t- Run Go tests in parallel up to the count specified."
+    print "\t --generate \n\t\t- Run `go generate` (currently a NOOP)."
     print "\t --timeout \n\t\t- Timeout for Go tests. Defaults to 480s."
     print "\t --clean \n\t\t- Clean the build output directory prior to creating build."
     print "\t --no-get \n\t\t- Do not run `go get` before building."
@@ -591,6 +610,15 @@ def print_package_summary(packages):
     print packages
 
 def main():
+    print ""
+    print "--- {} Builder ---".format(PACKAGE_NAME)
+
+    global debug
+    
+    # Pre-build checks
+    check_environ()
+    check_prereqs()
+    
     # Command-line arguments
     outdir = "build"
     commit = None
@@ -600,8 +628,8 @@ def main():
     nightly = False
     race = False
     branch = None
-    version = get_current_version()
-    rc = None
+    version = get_current_version_tag()
+    rc = get_current_rc()
     package = False
     update = False
     clean = False
@@ -614,8 +642,8 @@ def main():
     goarm_version = "6"
     run_get = True
     upload_bucket = None
-    global debug
-
+    generate = False
+    
     for arg in sys.argv[1:]:
         if '--outdir' in arg:
             # Output directory. If none is specified, then builds will be placed in the same directory.
@@ -650,6 +678,9 @@ def main():
         elif '--nightly' in arg:
             # Signifies that this is a nightly build.
             nightly = True
+            # In order to cleanly delineate nightly version, we are adding the epoch timestamp
+            # to the version so that version numbers are always greater than the previous nightly.
+            version = "{}.n{}".format(version, int(time.time()))
         elif '--update' in arg:
             # Signifies that dependencies should be updated.
             update = True
@@ -680,6 +711,10 @@ def main():
         elif '--bucket' in arg:
             # The bucket to upload the packages to, relies on boto
             upload_bucket = arg.split("=")[1]
+        elif '--generate' in arg:
+            # Run go generate ./...
+            # TODO - this currently does nothing for InfluxDB
+            generate = True
         elif '--debug' in arg:
             print "[DEBUG] Using debug output"
             debug = True
@@ -691,17 +726,10 @@ def main():
             print_usage()
             return 1
 
-    if nightly:
-        if rc:
-            print "!! Cannot be both nightly and a release candidate! Stopping."
-            return 1
-        # In order to cleanly delineate nightly version, we are adding the epoch timestamp
-        # to the version so that version numbers are always greater than the previous nightly.
-        version = "{}.n{}".format(version, int(time.time()))
+    if nightly and rc:
+        print "!! Cannot be both nightly and a release candidate! Stopping."
+        return 1
 
-    # Pre-build checks
-    check_environ()
-    check_prereqs()
 
     if not commit:
         commit = get_current_commit(short=True)
@@ -726,6 +754,11 @@ def main():
         target_arch = 'amd64'
     
     build_output = {}
+
+    if generate:
+        if not run_generate():
+            return 1
+    
     if test:
         if not run_tests(race, parallel, timeout, no_vet):
             return 1
