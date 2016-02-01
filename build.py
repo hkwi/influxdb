@@ -626,10 +626,6 @@ def print_package_summary(packages):
 def main():
     global debug
     
-    # Pre-build checks
-    check_environ()
-    check_prereqs()
-    
     # Command-line arguments
     outdir = "build"
     commit = None
@@ -741,6 +737,10 @@ def main():
         print "!! Cannot be both nightly and a release candidate! Stopping."
         return 1
 
+    # Pre-build checks
+    check_environ()
+    check_prereqs()
+    
     if not commit:
         commit = get_current_commit(short=True)
     if not branch:
