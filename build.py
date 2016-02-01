@@ -127,6 +127,20 @@ def package_scripts(build_root):
     shutil.copyfile(DEFAULT_CONFIG, os.path.join(build_root, CONFIG_DIR[1:], "influxdb.conf"))
     os.chmod(os.path.join(build_root, CONFIG_DIR[1:], "influxdb.conf"), 0644)
 
+def run_generate():
+    # TODO - Port this functionality to InfluxDB, currently a NOOP
+    print "NOTE: The `--generate` flag is currently a NNOP. Skipping..."
+    # print "Running generate..."
+    # command = "go generate ./..."
+    # code = os.system(command)
+    # if code != 0:
+    #     print "Generate Failed"
+    #     return False
+    # else:
+    #     print "Generate Succeeded"
+    # return True
+    pass
+    
 ################
 #### All InfluxDB-specific content above this line
 ################
@@ -474,17 +488,6 @@ def go_get(branch, update=False):
 
         print "Moving back to branch '{}'...".format(branch)
         run("git checkout {}".format(branch))
-
-def run_generate():
-    print "Running generate..."
-    command = "go generate ./..."
-    code = os.system(command)
-    if code != 0:
-        print "Generate Failed"
-        return False
-    else:
-        print "Generate Succeeded"
-    return True
         
 def generate_md5_from_file(path):
     m = hashlib.md5()
@@ -531,9 +534,11 @@ def build_packages(build_output, version, pkg_arch, nightly=False, rc=None, iter
                     # since they may be modified below.
                     package_version = version
                     package_iteration = iteration
+                    package_build_root = build_root
                     current_location = build_output[p][a]
 
                     if package_type in ['zip', 'tar']:
+                        package_build_root = os.path.join('/', '/'.join(build_root.split('/')[:-1]))
                         if nightly:
                             name = '{}-nightly_{}_{}'.format(name, p, a)
                         else:
@@ -559,7 +564,7 @@ def build_packages(build_output, version, pkg_arch, nightly=False, rc=None, iter
                         package_type,
                         package_version,
                         package_iteration,
-                        os.path.join('/', '/'.join(build_root.split('/')[:-1])),
+                        package_build_root,
                         current_location)
                     if debug:
                         fpm_command += "--verbose "
@@ -735,7 +740,6 @@ def main():
     if nightly and rc:
         print "!! Cannot be both nightly and a release candidate! Stopping."
         return 1
-
 
     if not commit:
         commit = get_current_commit(short=True)
